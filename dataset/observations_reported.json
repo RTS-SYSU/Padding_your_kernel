@@ -1,0 +1,8 @@
+{
+  "source": "User-supplied RTX 3060 table in the PADGain project conversation",
+  "speedup_decimal_places": 3,
+  "records": [
+    {"case_id": "holdout", "rows": 19456, "speedup": 2.188, "base_reported_l2_read_misses": 1508541, "pad_reported_l2_read_misses": 38912},
+    {"case_id": "original", "rows": 18432, "speedup": 2.036, "base_reported_l2_read_misses": 1149273, "pad_reported_l2_read_misses": 36930}
+  ]
+}

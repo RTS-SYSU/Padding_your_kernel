@@ -17,7 +17,7 @@ from prediction import predict
 
 
 HERE = Path(__file__).resolve().parent
-ARCHIVE = HERE / "results"
+ARCHIVE = HERE.parents[1] / "results"
 ISSUED = "l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum"
 L2_READ = "lts__t_sectors_srcunit_tex_op_read.sum"
 L2_MISS = "lts__t_sectors_srcunit_tex_op_read_lookup_miss.sum"

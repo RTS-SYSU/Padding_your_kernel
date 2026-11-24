@@ -95,18 +95,18 @@ struct Plan {
     int rows = 0;
     int blocks = 0;
     size_t scrub_bytes = 0;
-    int pad() const { return (tag_words - columns % tag_words) % tag_words; }
-    size_t base_tag_count() const {
+    int explicit_pad = -1;
+    int pad() const { return explicit_pad >= 0 ? explicit_pad : (tag_words - columns % tag_words) % tag_words; }
+    size_t tag_count(int pitch) const {
         // Each 8-word window is sector-aligned and fits in one 128-byte block.
         // Rows share no blocks across these two windows at the supported strides.
-        const int period = tag_words / std::gcd(columns, tag_words);
-        size_t blocks_per_period = 0;
-        for (int row = 0; row < period; ++row) {
-            const int first = row * columns;
-            const int second = first + second_window_words;
-            blocks_per_period += 1 + (first / tag_words != second / tag_words);
+        size_t blocks_touched = 0;
+        for (int row = 0; row < rows; ++row) {
+            const size_t first = size_t(row) * pitch;
+            const size_t second = first + second_window_words;
+            blocks_touched += 1 + (first / tag_words != second / tag_words);
         }
-        return size_t(rows / period) * blocks_per_period;
+        return blocks_touched;
     }
     size_t output_bytes() const { return size_t(blocks) * threads * sizeof(Word); }
     size_t allocation(int pitch) const {
@@ -126,9 +126,10 @@ int read_case_number(const char*& begin, const char* end, bool last) {
     return value;
 }
 
-Plan make_plan(const std::string& case_name) {
+Plan make_plan(const std::string& case_name, int explicit_pad) {
     Plan p;
     p.case_name = case_name;
+    p.explicit_pad = explicit_pad;
     CUDA(cudaSetDevice(0));
     CUDA(cudaGetDeviceProperties(&p.device, 0));
     int l2 = p.device.l2CacheSize;
@@ -185,12 +186,12 @@ void print_plan(const Plan& p) {
                 "\"grid_barrier\":false,\"layout_granule_bytes\":%zu,\"extra_budget_bytes\":%zu,"
                 "\"base_allocation_bytes\":%zu,\"pad_allocation_bytes\":%zu,"
                 "\"scrub_bytes\":%zu,\"output_bytes\":%zu,\"base_tag_count\":%zu,"
-                "\"pad_tag_count\":%d,\"source_sectors_per_sweep\":%zu}\n",
+                "\"pad_tag_count\":%zu,\"source_sectors_per_sweep\":%zu}\n",
                 p.case_name.c_str(), p.device.name, p.device.major, p.device.minor, p.device.l2CacheSize, p.rows,
                 rounds, p.columns, p.pad(), p.second_window_words, assumed_tag_bytes, p.blocks, threads,
                 layout_granule, p.extra_budget_bytes,
                 p.allocation(p.columns), p.allocation(p.columns + p.pad()), p.scrub_bytes,
-                p.output_bytes(), p.base_tag_count(), p.rows, size_t(p.rows) * 2);
+                p.output_bytes(), p.tag_count(p.columns), p.tag_count(p.columns + p.pad()), size_t(p.rows) * 2);
     std::fflush(stdout);
 }
 
@@ -308,11 +309,14 @@ int main(int argc, char** argv) {
     try {
         std::string mode = argc == 1 ? "both" : argv[1];
         std::string case_name = argc > 2 ? argv[2] : "original";
-        if (argc > 3 || (mode != "both" && mode != "base" && mode != "pad"
+        if (argc > 4 || (mode != "both" && mode != "base" && mode != "pad"
                          && mode != "info" && mode != "--info")) {
-            throw std::runtime_error("Usage: bench [both|base|pad|info] [original|holdout|w72_mid|w80_high|family-W-G-F]");
+            throw std::runtime_error("Usage: bench [both|base|pad|info] [case] [explicit pad words]");
         }
-        const Plan plan = make_plan(case_name);
+        const int explicit_pad = argc == 4 ? std::stoi(argv[3]) : -1;
+        if (argc == 4 && (explicit_pad < 0 || explicit_pad >= tag_words || explicit_pad % window_words))
+            throw std::invalid_argument("Explicit padding must be one of 0, 8, 16, 24 words");
+        const Plan plan = make_plan(case_name, explicit_pad);
         print_plan(plan);
         if (mode == "info" || mode == "--info") return 0;
         auto expected = reference(plan);

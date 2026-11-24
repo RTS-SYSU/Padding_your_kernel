@@ -3,10 +3,16 @@ param(
     [string] $BuildDir = (Join-Path ([IO.Path]::GetTempPath()) 'PADGain_row_tail_build'),
     [ValidatePattern('^sm_[0-9]{2,3}[a-z]?$')]
     [string] $Arch = 'sm_89',
-    [string] $SourceFile = (Join-Path $PSScriptRoot 'bench.cu')
+    [string] $SourceFile
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $SourceFile) {
+    $SourceFile = Join-Path $PSScriptRoot 'bench.cu'
+    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
+        $SourceFile = Join-Path $PSScriptRoot '../experiments/dual_window/bench.cu'
+    }
+}
 $source = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourceFile)
 if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
     throw "CUDA source not found: $source"
