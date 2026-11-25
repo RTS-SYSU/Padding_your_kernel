@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101722">
+  <title>Padding Your Kernel · GPU 补量工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#analysis">跳到分析结果</a>
+  <header class="topbar">
+    <div class="wrap top-inner">
+      <a class="brand" href="/" aria-label="Padding Your Kernel 工作台"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>Padding Your Kernel</a>
+      <a class="repo-link" href="https://github.com/RTS-SYSU/Padding_your_kernel" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="page-heading">
+      <h1>GPU 补量工作台</h1>
+      <p>根据算子访问和缓存模型推导单个行尾补量。</p>
+    </div>
+    <div class="workspace">
+      <aside class="panel controls" aria-labelledby="inputs-title">
+        <h2 id="inputs-title">分析输入</h2>
+        <div class="segments" role="group" aria-label="分析模式">
+          <button id="preset-mode" type="button" aria-pressed="true" aria-controls="preset-fields">算子预设</button>
+          <button id="custom-mode" type="button" aria-pressed="false" aria-controls="custom-fields">相邻列</button>
+        </div>
+        <form id="analysis-form">
+          <div id="preset-fields" class="fields">
+            <label for="preset">算子</label>
+            <select id="preset" disabled><option>正在加载…</option></select>
+            <p id="preset-meta" class="quiet field-note"></p>
+          </div>
+          <div id="custom-fields" class="fields" hidden>
+            <div class="field-grid">
+              <label>逻辑行宽 <input id="width" type="number" min="1" max="2147483647" step="1" value="2048" required></label>
+              <label>行数 <input id="rows" type="number" min="1" max="2147483647" step="1" value="2048" required></label>
+            </div>
+            <label for="reserved">保留的同组缓存线数</label>
+            <input id="reserved" type="number" min="0" step="1" value="1" required>
+            <label for="alignment">基址对齐</label>
+            <select id="alignment"><option value="4">4 B</option><option value="8">8 B</option><option value="16">16 B</option><option value="32">32 B</option><option value="64">64 B</option><option value="128" selected>128 B</option><option value="256">256 B</option></select>
+          </div>
+          <button id="analyze" type="submit" class="primary" disabled>分析布局 <span aria-hidden="true">→</span></button>
+        </form>
+        <p id="input-status" class="input-status" role="status" aria-live="polite"></p>
+        <button id="retry-presets" type="button" class="secondary" hidden>重新加载预设</button>
+      </aside>
+
+      <div id="analysis" class="analysis" tabindex="-1" aria-label="分析结果" aria-busy="true">
+        <section class="panel">
+          <div class="panel-head result-head">
+            <div><p class="section-label">当前分析</p><h2 id="operator">正在加载</h2><p id="result-meta" class="quiet"></p></div>
+            <button id="download" type="button" class="secondary download" disabled><span aria-hidden="true">↓</span> 下载 JSON</button>
+          </div>
+          <div id="result-empty" class="placeholder" role="status">正在加载算子预设…</div>
+          <div id="result-body" hidden>
+            <div class="metrics">
+              <div class="metric featured"><span>每行建议补量</span><strong id="padding-value">—</strong><small id="result-status"></small></div>
+              <div class="metric"><span>逻辑行宽 → 物理行距</span><strong id="pitch-value">—</strong><small id="pitch-note"></small></div>
+              <div class="metric"><span>额外分配</span><strong id="bytes-value">—</strong><small id="bytes-note"></small></div>
+            </div>
+            <div id="layout-section" class="layout-section" hidden>
+              <div class="layout-top"><h3>行距对照</h3><label id="operand-label" hidden>操作数 <select id="operand"></select></label><span id="operand-name" class="quiet"></span></div>
+              <div id="diagrams" class="diagrams"></div>
+              <div class="legend"><span><i class="data-key"></i>逻辑元素</span><span id="pad-legend"><i class="pad-key"></i>行尾补量</span><span id="diagram-note" class="quiet"></span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="evidence" class="panel evidence" aria-labelledby="evidence-title" hidden>
+          <div class="panel-head"><h2 id="evidence-title">推导与适用范围</h2></div>
+          <dl class="evidence-list">
+            <div><dt>推导规则</dt><dd id="rule"></dd></div>
+            <div><dt>选择理由</dt><dd id="reason"></dd></div>
+            <div><dt>适用范围</dt><dd id="scope"></dd></div>
+            <div id="source-row" hidden><dt>源码依据</dt><dd><code id="source"></code></dd></div>
+          </dl>
+          <div id="fact-section" class="assumptions" hidden><h3>推导证据</h3><ul id="facts"></ul></div>
+          <div id="assumption-section" class="assumptions" hidden><h3>模型假设</h3><ul id="assumptions"></ul></div>
+          <div id="operands-section" class="operands" hidden>
+            <h3>操作数布局</h3>
+            <div class="table-scroll"><table>
+              <thead><tr><th scope="col">操作数</th><th scope="col">行数</th><th scope="col">逻辑行宽</th><th scope="col">物理行距</th><th scope="col">增加字节</th></tr></thead>
+              <tbody id="operand-rows"></tbody>
+            </table></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

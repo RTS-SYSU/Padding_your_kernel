@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "padding-your-kernel"
+dynamic = ["version"]
+description = "Single-value, source-based CUDA row-padding analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/RTS-SYSU/Padding_your_kernel"
+Issues = "https://github.com/RTS-SYSU/Padding_your_kernel/issues"
+
+[project.scripts]
+padding-your-kernel = "padding_your_kernel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "padding_your_kernel.__version__"}
+
+[tool.setuptools.package-data]
+"padding_your_kernel.web" = ["*.html", "*.css", "*.js"]

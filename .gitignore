@@ -1,4 +1,7 @@
 __pycache__/
 *.py[cod]
-/results/
+*.egg-info/
+/.venv/
 /build/
+/dist/
+/results/
