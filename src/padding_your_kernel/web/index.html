@@ -14,7 +14,6 @@
     <div class="wrap top-inner">
       <h1 class="app-title"><a class="brand" href="/">Padding Your Kernel</a></h1>
       <nav class="top-links" aria-label="工作台链接">
-        <a class="measurement-link" href="#measurement-summary">GPU 实测</a>
         <a class="repo-link" href="https://github.com/RTS-SYSU/Padding_your_kernel" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
     </div>
@@ -68,6 +67,7 @@
               <div class="metric"><span>逻辑行宽 → 物理行距</span><strong id="pitch-value">—</strong><small id="pitch-note"></small></div>
               <div class="metric"><span>额外分配</span><strong id="bytes-value">—</strong><small id="bytes-note"></small></div>
             </div>
+            <p id="analysis-reason" class="analysis-reason" hidden></p>
             <div id="layout-section" class="layout-section" hidden>
               <div class="layout-top"><h3>行距对照</h3><label id="operand-label" hidden>操作数 <select id="operand"></select></label><span id="operand-name" class="quiet"></span></div>
               <div id="diagrams" class="diagrams"></div>
@@ -76,7 +76,7 @@
           </div>
         </section>
 
-        <section id="live-result" class="panel measurements" aria-labelledby="live-result-title" hidden>
+        <section id="live-result" class="panel" aria-labelledby="live-result-title" hidden>
           <div class="panel-head measurement-head">
             <div><h2 id="live-result-title">本次真机实验</h2><p class="quiet" id="live-result-device"></p></div>
             <span id="live-result-verdict" class="verdict" hidden></span>
@@ -91,60 +91,8 @@
           </div>
         </section>
 
-        <section id="native-measurements" class="panel measurements" aria-labelledby="native-title" hidden>
-          <div class="panel-head measurement-head">
-            <div><h2 id="native-title">历史真机实验</h2><p class="quiet" id="native-device"></p></div>
-            <span id="native-verdict" class="verdict" hidden></span>
-          </div>
-          <p id="native-message" class="measurement-message" role="status"></p>
-          <div id="native-data" hidden>
-            <dl id="native-stats" class="native-stats"></dl>
-            <div id="native-processes" class="native-processes" hidden>
-              <h3>各进程配对加速比</h3><ol id="native-ratios"></ol>
-            </div>
-            <p id="native-method" class="measurement-method"></p>
-          </div>
-          <div class="measurement-actions"><a href="#measurement-summary">查看全部 GPU 实测</a></div>
-        </section>
-
-        <section id="evidence" class="panel evidence" aria-labelledby="evidence-title" hidden>
-          <div class="panel-head"><h2 id="evidence-title">推导与适用范围</h2></div>
-          <dl class="evidence-list">
-            <div><dt>推导规则</dt><dd id="rule"></dd></div>
-            <div><dt>选择理由</dt><dd id="reason"></dd></div>
-            <div><dt>适用范围</dt><dd id="scope"></dd></div>
-            <div id="source-row" hidden><dt>源码依据</dt><dd><code id="source"></code></dd></div>
-          </dl>
-          <div id="fact-section" class="assumptions" hidden><h3>推导证据</h3><ul id="facts"></ul></div>
-          <div id="assumption-section" class="assumptions" hidden><h3>模型假设</h3><ul id="assumptions"></ul></div>
-          <div id="operands-section" class="operands" hidden>
-            <h3>操作数布局</h3>
-            <div class="table-scroll"><table>
-              <thead><tr><th scope="col">操作数</th><th scope="col">行数</th><th scope="col">逻辑行宽</th><th scope="col">物理行距</th><th scope="col">增加字节</th></tr></thead>
-              <tbody id="operand-rows"></tbody>
-            </table></div>
-          </div>
-        </section>
       </div>
     </div>
-    <section id="measurement-summary" class="panel measurement-summary" aria-labelledby="summary-title">
-      <div class="panel-head measurement-head">
-        <div><h2 id="summary-title">RTX 4060 Ti 全部实测</h2><p id="summary-meta" class="quiet"></p></div>
-        <button id="retry-measurements" type="button" class="secondary" hidden>重新加载结果</button>
-      </div>
-      <p id="summary-message" class="measurement-message" role="status">正在加载已归档的 GPU 结果…</p>
-      <div id="summary-content" class="summary-content" hidden>
-        <ul id="summary-totals" class="summary-totals" aria-label="验收统计"></ul>
-        <div class="table-scroll" role="region" aria-label="GPU 实测配置表" tabindex="0">
-          <table class="summary-table">
-            <caption class="sr-only">按预设配置比较两种布局的 CUDA 事件时间</caption>
-            <thead><tr><th scope="col">算子与尺寸</th><th scope="col">推导补量</th><th scope="col">基线 (µs)</th><th scope="col">补后 (µs)</th><th scope="col">配对加速比</th><th scope="col">更快进程</th><th scope="col">结果</th></tr></thead>
-            <tbody id="summary-rows"></tbody>
-          </table>
-        </div>
-        <p id="summary-method" class="measurement-method"></p>
-      </div>
-    </section>
   </main>
 </body>
 </html>

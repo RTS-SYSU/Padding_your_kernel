@@ -6,7 +6,7 @@ from threading import Thread
 import unittest
 
 from padding_your_kernel.live import BusyError
-from padding_your_kernel.presets import analyze_preset, list_presets
+from padding_your_kernel.presets import list_presets
 from padding_your_kernel.server import Handler
 
 
@@ -89,28 +89,14 @@ class WebTests(unittest.TestCase):
                 self.assertEqual(status, 400)
                 self.assertTrue(result["error"])
 
-    def test_published_measurements_match_presets(self):
-        status, _, payload = self.request("GET", "/api/measurements")
+    def test_workbench_shows_layout_and_current_measurement_only(self):
+        status, _, page = self.request("GET", "/")
         self.assertEqual(status, 200)
-        snapshot = json.loads(payload)
-        self.assertEqual((snapshot["preparation"], snapshot["processes"], snapshot["correctness_checks"]),
-                         ("primed", 3, 141))
-        rows = snapshot["measurements"]
-        by_preset = {item["preset"]: item for item in rows}
-        self.assertEqual(len(rows), len(by_preset))
-        self.assertEqual(set(by_preset), {item.name for item in list_presets()})
-        for name, item in by_preset.items():
-            self.assertEqual(item["p"], analyze_preset(name).p)
-            self.assertGreater(item["baseline_us"], 0)
-            if item["p"]:
-                self.assertEqual(len(item["process_speedups"]), 3)
-            else:
-                self.assertEqual(item["status"], "baseline_only")
-                self.assertIsNone(item["speedup"])
-        self.assertEqual(by_preset["mvt"]["case"], "n2048")
-        self.assertEqual(by_preset["mvt-4096"]["case"], "n4096")
-        self.assertAlmostEqual(by_preset["syrk"]["speedup"], 2.5727191304425374)
-        self.assertEqual(by_preset["gaussian"]["status"], "not_accepted")
+        for identifier in (b"result-body", b"run-live", b"live-result"):
+            self.assertIn(b'id="' + identifier + b'"', page)
+        for identifier in (b"native-measurements", b"measurement-summary", b"evidence"):
+            self.assertNotIn(b'id="' + identifier + b'"', page)
+        self.assertEqual(self.request("GET", "/api/measurements")[0], 404)
 
     def test_live_request_and_job_polling(self):
         path = "/api/live"

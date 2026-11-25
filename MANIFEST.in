@@ -1,3 +1,2 @@
 include CHANGELOG.md CONTRIBUTING.md
-recursive-include docs *.md *.png
-include tools/export_experiment23.py
+recursive-include docs *.md

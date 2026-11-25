@@ -1,21 +1,19 @@
 # Padding Your Kernel
 
-用访存约束为 CUDA 算子直接推导一个行尾补量，并说明采用的规则、物理行距和额外分配。工作台包含 PolyBench/GPU 和 Rodinia 的 17 个算子预设，其中 MVT 提供两个尺寸。可以查看各配置的历史真机计时，在本机重新测指定预设，也可以输入满足模型条件的 FP32 相邻列复用布局。
+用访存约束为 CUDA 算子直接推导一个行尾补量。工作台包含 PolyBench/GPU 和 Rodinia 的 17 个算子预设，其中 MVT 提供两个尺寸。可以在本机测量指定预设，也可以输入满足模型条件的 FP32 相邻列复用布局。
 
 [模型与适用范围](docs/theory.md) · [参与开发](CONTRIBUTING.md) · [版本记录](CHANGELOG.md)
 
-![选定 SYRK 后查看现场测量和历史真机记录](docs/workbench.png)
-
 ## 快速开始
 
-解析功能和历史结果需要 Python 3.10 或更新版本。在仓库根目录安装并启动。
+解析功能需要 Python 3.10 或更新版本。在仓库根目录安装并启动。
 
 ```text
 python -m pip install .
 padding-your-kernel serve
 ```
 
-打开 [本地工作台](http://127.0.0.1:8766/) 。选择预设或输入参数，点击「分析布局」查看结果。报告可下载为 JSON。
+打开 [本地工作台](http://127.0.0.1:8766/) 。选择预设或输入参数，点击「分析布局」查看补量和行距。推导依据可通过 JSON 报告或命令行查看。
 
 ## 运行真机实验
 
@@ -27,9 +25,7 @@ padding-your-kernel serve --research-dir "C:\SYSU\papers\Analytical GPU Padding 
 
 在「算子预设」中选定算子和尺寸，点击「运行真机实验」。工作台先核对研究项目冻结的算子与补量，再调用已有的 CUDA 实现。一次运行一个配置。目标布局与 `p=0` 做预热配对，理论值为零时只计基线。新结果标注本机设备、CUDA 事件耗时、配对加速比、正确性和各进程的结果。运行日志和原始数据写入 `results/live/`，可用 `--results-dir` 改位置。
 
-历史结果始终来自 Experiment 23 的 RTX 4060 Ti 预热记录。18 个配置的总表可在页面打开。配对加速比按实验中的轮次与进程计算，旁边的两列时间各自取中位数。只有三个独立进程的配对结果都大于 1 时才标记为通过。自定义相邻列输入使用解析规则。
-
-[随包发布的预热记录](src/padding_your_kernel/data/experiment23_primed.json) · [从原始记录重建快照](tools/export_experiment23.py)
+配对加速比按实验中的轮次与进程计算，旁边的两列时间各自取中位数。三个独立进程的配对结果都大于 1 时标记为通过。自定义相邻列输入使用解析规则。
 
 ## 命令行
 
@@ -60,7 +56,6 @@ padding-your-kernel adjacent-columns --rows 2048 --width 2048
 | `src/padding_your_kernel/` | 同一分析核心、CLI、本地 API 和 Web 工作台。 |
 | `tests/` | 公式、预设和 HTTP 接口的无 GPU 检查。 |
 | `docs/` | 公式推导和各预设的适用范围。 |
-| `tools/` | 从研究实验记录重建历史计时快照。 |
 
 ```text
 python -m pip install -e .

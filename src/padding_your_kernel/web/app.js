@@ -6,7 +6,7 @@ const timingNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 3, 
 const ratioNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 const state = {
   mode: "preset", presets: new Map(), pending: false, result: null, resultPreset: null, dirty: false,
-  archive: null, archiveError: "", liveAvailable: null, liveReason: "", liveError: "", liveStarting: false, job: null,
+  liveAvailable: null, liveReason: "", liveError: "", liveStarting: false, job: null,
 };
 const liveStorageKey = "padding-your-kernel-live-id";
 let liveTimer;
@@ -20,40 +20,15 @@ const statuses = {
   keep_baseline: "保留原布局",
   unsupported: "超出模型适用范围",
 };
-const knownRules = {
-  "Adjacent-column reuse": "相邻列复用距离",
-  "Aligned right-operand stream": "右操作数对齐访问流",
-  "Aligned per-stage right operands": "逐阶段右操作数对齐",
-  "Signed set distance with one broadcast": "保留一条广播线的同组复用距离",
-  "Two-matrix reuse with an odd line pitch": "两个矩阵以奇数缓存线为行距",
-  "Stencil window already fits": "模板邻域的复用窗口满足容量约束",
-  "Per-stage stencil windows already fit": "各阶段模板窗口满足容量约束",
-  "Temporal reuse is in shared memory": "共享内存中的时间复用",
-  "Coefficient CTA neighbor reuse": "系数计算块内的邻域复用",
-  "Aligned half-line tiles": "对齐的半线分块",
-  "Pivot-column group occupancy": "主元列的组占用",
-  "Two rows share one tag per warp": "同一 warp 的两行共享缓存线标签",
-  "No applicable rectangular pitch": "当前布局无统一矩形行距",
-  "Point reuse is in registers": "寄存器中的数据点复用",
-  "Global weights stream once per local row": "每个局部步骤依次读取权重行",
-};
-const knownEvidence = new Map([
-  ["At pitch 264, only the first and last lanes can compete for the same matrix set in an adjacent-column reuse interval. With the broadcast reserve, at most two lines intervene.",
-    "行距为 264 时，在相邻列复用间隔内，只有首尾 lane 可能争用同一矩阵缓存组。计入广播预留后，最多有两条线介入。"],
-  ["PolyBench/GPU fixed study case. A=384 × 256. Full-square rank-k update with one broadcast and one cross-row burst per reduction step.",
-    "适用于固定尺寸的 PolyBench/GPU SYRK，A 为 384 × 256。完整方阵的每步归约包含一次广播和一次跨行读取。"],
-  ["At the 256-float packed pitch, the L1 reuse interval can contain seven same-set matrix tags.",
-    "原行距为 256 时，L1 的有序复用间隔内可出现七条同组矩阵线。"],
-  ["At the first positive 32-byte-aligned pitch, d × 264 modulo 32S can create a collision only for |d|=31.",
-    "在最小的正 32 B 对齐行距下，仅当 |d|=31 时，d × 264 对 32S 取模才可能产生同组碰撞。"],
-  ["The ideal L1 has 32 sets, 4 ways and 128-byte lines with direct modulo indexing and LRU replacement.",
-    "理想 L1 有 32 组、4 路和 128 B 缓存线，采用取模索引和 LRU 替换。"],
-  ["The ideal L2 uses a single 64-set, 16-way partition with direct modulo indexing. Device slice mapping and the stream filtered by L1 are outside this model.",
-    "理想 L2 为单个 64 组、16 路的取模分区。设备分片映射与 L1 筛选后的请求流需另行建模。"],
-  ["The recommendation applies to this source implementation, fixed dimensions, and its declared window.",
-    "建议适用于给定实现、固定尺寸和声明的复用窗口。"],
-  ["Timing, actual cache hash functions, and other interleavings are outside the analytical rule.",
-    "真实计时、缓存哈希函数和访问交错须另行验证。"],
+const unsupportedReasons = new Map([
+  ["Logical width must be a multiple of 2048 FP32 elements for the row-stride term to cancel at both levels.",
+    "逻辑行宽须为 2048 个 FP32 元素的倍数。"],
+  ["The custom rule requires at least 32 rows so its full-warp certificate applies.",
+    "相邻列模型须至少有 32 行。"],
+  ["The stated base alignment must guarantee a 32-byte aligned row start.",
+    "基址须保证行首按 32 B 对齐。"],
+  ["The reserved competing lines occupy every L1 way in the worst case.",
+    "保留缓存线已占满理想 L1 的四路。"],
 ]);
 
 function element(tag, value, className) {
@@ -129,8 +104,8 @@ function preparationLabel(preparation) {
   return preparation || "";
 }
 
-function timing(value, unit = false) {
-  return Number.isFinite(value) ? `${timingNumber.format(value)}${unit ? " µs" : ""}` : "—";
+function timing(value) {
+  return Number.isFinite(value) ? `${timingNumber.format(value)} µs` : "—";
 }
 
 function speedup(value) {
@@ -163,129 +138,41 @@ function trialDescription(meta) {
     `每个进程 ${fmt(meta.rounds)} 轮，每轮每种布局 ${fmt(meta.samples_per_round)} 个样本。` : "";
 }
 
-function showTiming(prefix, row, meta, provenance, message = "", error = false) {
+function showLiveTiming(row, meta, provenance, message = "", error = false) {
   const hasRow = Boolean(row);
-  byId(`${prefix}-data`).hidden = !hasRow;
-  byId(`${prefix}-verdict`).hidden = !hasRow;
-  setText(`${prefix}-device`, metadataLabel(meta));
-  renderError(`${prefix}-message`, message, error);
+  byId("live-result-data").hidden = !hasRow;
+  byId("live-result-verdict").hidden = !hasRow;
+  setText("live-result-device", metadataLabel(meta));
+  renderError("live-result-message", message, error);
   if (!hasRow) return;
 
   const verdict = measurementStatuses[row.status];
-  const verdictNode = byId(`${prefix}-verdict`);
+  const verdictNode = byId("live-result-verdict");
   verdictNode.className = `verdict ${verdict?.[1] || ""}`;
   verdictNode.textContent = verdict?.[0] || "已完成";
-  const stats = [["基线 p=0", timing(row.baseline_us, true)]];
+  const stats = [["基线 p=0", timing(row.baseline_us)]];
   const processes = meta.processes || row.process_speedups?.length;
   if (row.p > 0) {
-    stats.push([`补后 p=${fmt(row.p)}`, timing(row.padded_us, true)], ["配对加速比", speedup(row.speedup)]);
+    stats.push([`补后 p=${fmt(row.p)}`, timing(row.padded_us)], ["配对加速比", speedup(row.speedup)]);
     if (positiveInteger(processes) && Number.isInteger(row.faster_processes)) {
       verdictNode.textContent += ` · ${row.faster_processes}/${processes}`;
     }
   }
-  byId(`${prefix}-stats`).replaceChildren(...stats.map(([label, value]) => {
+  byId("live-result-stats").replaceChildren(...stats.map(([label, value]) => {
     const cell = element("div");
     cell.append(element("dt", label), element("dd", value));
     return cell;
   }));
   const ratios = Array.isArray(row.process_speedups) ? row.process_speedups : [];
-  byId(`${prefix}-processes`).hidden = !ratios.length;
-  byId(`${prefix}-ratios`).replaceChildren(...ratios.map((value, index) =>
+  byId("live-result-processes").hidden = !ratios.length;
+  byId("live-result-ratios").replaceChildren(...ratios.map((value, index) =>
     element("li", `进程 ${index + 1} · ${speedup(value)}`)));
   const launchText = positiveInteger(row.launches) ? `计时覆盖 ${fmt(row.launches)} 次内核启动。` : "";
-  const checks = row.correctness_checks ?? (prefix === "live-result" ? meta.correctness_checks : null);
+  const checks = row.correctness_checks ?? meta.correctness_checks;
   const correctnessText = positiveInteger(checks) ? `${fmt(checks)} 项输出检查全部通过。` : "";
   const comparison = row.p === 0 ? "此配置仅计时基线。" : "配对加速比取各进程成对统计量的中位数。";
-  setText(`${prefix}-method`, [provenance, launchText, trialDescription(meta), correctnessText, comparison]
+  setText("live-result-method", [provenance, launchText, trialDescription(meta), correctnessText, comparison]
     .filter(Boolean).join(" "));
-}
-
-function showArchiveCard() {
-  const preset = measurementContext();
-  byId("native-measurements").hidden = !preset;
-  if (!preset) return;
-  if (state.archiveError) {
-    showTiming("native", null, {}, "", "无法加载归档计时。可在全部实测区域重试。", true);
-    return;
-  }
-  if (!state.archive) {
-    showTiming("native", null, {}, "", "正在加载归档计时…");
-    return;
-  }
-  const row = state.archive.measurements.find((item) => item.preset === preset);
-  const match = matchMeasurement(row, preset);
-  showTiming("native", match ? row : null, state.archive,
-    "归档快照与此预设的源码和输入尺寸对应。",
-    match ? "" : row ? "归档布局与当前推导不同，参见全部实测。" : "此预设没有归档计时。");
-}
-
-function archiveRow(row, meta) {
-  const tr = element("tr");
-  const main = element("th");
-  main.scope = "row";
-  const preset = state.presets.get(row.preset);
-  if (preset) {
-    const button = element("button", row.operator, "summary-preset");
-    button.type = "button";
-    button.setAttribute("aria-label", `查看 ${row.operator} ${preset.size || ""} 的分析`);
-    button.addEventListener("click", async () => {
-      if (state.pending) return;
-      state.mode = "preset";
-      byId("preset").value = preset.name;
-      setText("preset-meta", presetMeta(preset));
-      inputChanged();
-      await analyze();
-      if (measurementContext() === preset.name) byId("native-measurements").scrollIntoView({ block: "start" });
-    });
-    main.append(button);
-  } else {
-    main.append(element("span", row.operator));
-  }
-  main.append(element("small", preset?.size || (row.case !== "default" ? row.case : "")));
-  tr.append(main, element("td", fmt(row.p)), element("td", timing(row.baseline_us)),
-    element("td", timing(row.padded_us)), element("td", speedup(row.speedup)),
-    element("td", Number.isInteger(row.faster_processes) ? `${row.faster_processes}/${meta.processes}` : "—"));
-  const verdict = measurementStatuses[row.status];
-  const cell = element("td");
-  cell.append(element("span", verdict?.[0] || row.status, `verdict ${verdict?.[1] || ""}`));
-  tr.append(cell);
-  return tr;
-}
-
-function showArchiveSummary() {
-  const data = state.archive;
-  byId("summary-content").hidden = !data;
-  byId("retry-measurements").hidden = !state.archiveError;
-  renderError("summary-message", state.archiveError || (data ? "" : "正在加载已归档的 GPU 结果…"), Boolean(state.archiveError));
-  if (!data) return;
-  setText("summary-meta", [metadataLabel(data), data.experiment, data.date].filter(Boolean).join(" · "));
-  const counts = [["个配置", data.measurements.length], ["个通过", 0], ["个未复现一致加速", 0], ["个仅基线", 0]];
-  for (const row of data.measurements) {
-    const index = ["accepted", "not_accepted", "baseline_only"].indexOf(row.status);
-    if (index !== -1) counts[index + 1][1] += 1;
-  }
-  byId("summary-totals").replaceChildren(...counts.map(([label, count]) => {
-    const item = element("li");
-    item.append(element("strong", fmt(count)), document.createTextNode(` ${label}`));
-    return item;
-  }));
-  byId("summary-rows").replaceChildren(...data.measurements.map((row) => archiveRow(row, data)));
-  setText("summary-method", `已验证的归档快照。各行对应既定源码和输入尺寸，时间为 CUDA 事件计时。${trialDescription(data)}全部进程配对中位数均大于 1 才通过。`);
-}
-
-async function loadMeasurements() {
-  state.archiveError = "";
-  showArchiveSummary();
-  try {
-    const data = await jsonRequest("/api/measurements");
-    if (!Array.isArray(data?.measurements) || !data.measurements.length ||
-        !data.measurements.every(validMeasurement)) throw new Error("结果列表缺少必要字段。");
-    state.archive = data;
-  } catch (error) {
-    state.archiveError = `无法加载已归档的 GPU 结果。${error.message || ""}`;
-  }
-  showArchiveSummary();
-  showArchiveCard();
 }
 
 function showLive() {
@@ -317,11 +204,11 @@ function showLive() {
     const analyzed = measurementContext() === selectedPreset.name;
     const match = analyzed ? matchMeasurement(job.measurement, selectedPreset.name) :
       validMeasurement(job.measurement) && job.measurement.preset === selectedPreset.name;
-    showTiming("live-result", match ? job.measurement : null, job,
+    showLiveTiming(match ? job.measurement : null, job,
       `${selectedPreset.operator} · ${presetMeta(selectedPreset)}。由当前真机实验采集。`,
       match ? "" : "本次计时的预设或布局与当前分析不一致。", !match);
   } else {
-    showTiming("live-result", null, job, "", jobMessage || (running ? "正在运行真机实验…" : "真机实验未完成。"),
+    showLiveTiming(null, job, "", jobMessage || (running ? "正在运行真机实验…" : "真机实验未完成。"),
       job.status === "failed");
   }
 }
@@ -426,7 +313,6 @@ function updateControls() {
   byId("analyze").disabled = state.pending || (!custom && !state.presets.size);
   byId("download").disabled = !state.result || state.pending || state.dirty;
   byId("analysis").setAttribute("aria-busy", String(state.pending));
-  showArchiveCard();
   showLive();
 }
 
@@ -484,33 +370,6 @@ function showLayout() {
   setText("diagram-note", layout.rows > 3 ? "显示前 3 行，右侧为行首相对元素偏移" : "右侧为行首相对元素偏移");
 }
 
-function showEvidence(result) {
-  const localize = (item) => knownEvidence.get(item) ?? item;
-  const makeList = (target, value) => {
-    const items = Array.isArray(value) ? value : value ? [value] : [];
-    byId(target).replaceChildren(...items.map((item) =>
-      element("li", typeof item === "string" ? localize(item) : JSON.stringify(item))));
-    return items.length;
-  };
-  setText("rule", knownRules[result.rule] || result.rule);
-  setText("reason", localize(result.reason));
-  setText("scope", localize(result.scope));
-  setText("source", result.source);
-  byId("source-row").hidden = !result.source;
-  byId("fact-section").hidden = !makeList("facts", result.facts);
-  byId("assumption-section").hidden = !makeList("assumptions", result.assumptions);
-  byId("operand-rows").replaceChildren(...result.layouts.map((layout) => {
-    const row = element("tr");
-    row.append(element("th", layoutLabel(layout)), element("td", fmt(layout.rows)),
-      element("td", fmt(layout.logical_width)), element("td", fmt(layout.physical_pitch)),
-      element("td", byteLabel(layout.extra_bytes)));
-    row.firstChild.scope = "row";
-    return row;
-  }));
-  byId("operands-section").hidden = !result.layouts.length;
-  byId("evidence").hidden = false;
-}
-
 function showResult(result, preset) {
   if (!result || typeof result.operator !== "string" || !Object.hasOwn(statuses, result.status) ||
       (result.p != null && !(Number.isSafeInteger(result.p) && result.p >= 0)) ||
@@ -529,6 +388,9 @@ function showResult(result, preset) {
   setText("result-meta", preset ? presetMeta(preset) || shape : ["相邻列模型", shape].filter(Boolean).join(" · "));
   setText("padding-value", result.p == null ? "—" : `p = ${fmt(result.p)}`);
   setText("result-status", statuses[result.status]);
+  const unsupported = result.status === "unsupported";
+  byId("analysis-reason").hidden = !unsupported;
+  setText("analysis-reason", unsupported ? unsupportedReasons.get(result.reason) ?? result.reason ?? "" : "");
   setText("bytes-value", byteLabel(result.extra_bytes));
   setText("bytes-note", result.layouts.length ? `${fmt(result.layouts.length)} 个操作数合计` : "");
   byId("operand").replaceChildren(...result.layouts.map((layout, index) => {
@@ -538,7 +400,6 @@ function showResult(result, preset) {
   }));
   byId("operand-label").hidden = result.layouts.length <= 1;
   showLayout();
-  showEvidence(result);
 }
 
 async function analyze() {
@@ -604,7 +465,6 @@ async function loadPresets() {
       /^syrk$/i.test(preset.operator) || /^syrk(?:$|[/:.-])/i.test(preset.name));
     if (defaultPreset) byId("preset").value = defaultPreset.name;
     setText("preset-meta", presetMeta(state.presets.get(byId("preset").value)));
-    showArchiveSummary();
     updateControls();
     if (!state.result && state.mode === "preset") await analyze();
   } catch (error) {
@@ -637,7 +497,6 @@ byId("analysis-form").addEventListener("submit", (event) => {
 });
 byId("operand").addEventListener("change", showLayout);
 byId("retry-presets").addEventListener("click", loadPresets);
-byId("retry-measurements").addEventListener("click", loadMeasurements);
 byId("run-live").addEventListener("click", startLive);
 byId("download").addEventListener("click", () => {
   if (!state.result || state.dirty || state.pending) return;
@@ -655,5 +514,4 @@ byId("download").addEventListener("click", () => {
 
 updateControls();
 void loadPresets();
-void loadMeasurements();
 void loadLiveCapability();

@@ -96,14 +96,6 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/presets":
             self.respond_json({"presets": [item.to_dict() for item in list_presets()]})
-        elif path == "/api/measurements":
-            resource = files("padding_your_kernel.data").joinpath("experiment23_primed.json")
-            try:
-                payload = resource.read_bytes()
-            except OSError:
-                self.respond_json({"error": "随工具发布的真机记录无法读取。"}, HTTPStatus.SERVICE_UNAVAILABLE)
-            else:
-                self.respond(payload, "application/json")
         elif path == "/api/live":
             availability = (self.jobs.capabilities() if self.jobs
                             else {"available": False, "reason": "现场运行未配置。", "active": None})

@@ -26,4 +26,3 @@ version = {attr = "padding_your_kernel.__version__"}
 
 [tool.setuptools.package-data]
 "padding_your_kernel.web" = ["*.html", "*.css", "*.js"]
-"padding_your_kernel.data" = ["*.json"]
