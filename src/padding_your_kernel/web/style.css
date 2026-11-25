@@ -17,7 +17,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--ink); background: var(--desk); }
-button, input, select { font: inherit; }
+button, select { font: inherit; }
 button, select { cursor: pointer; }
 button:disabled, select:disabled { color: #697780; cursor: default; }
 a { color: var(--link); text-underline-offset: 2px; }
@@ -41,18 +41,13 @@ h1, h2, h3 { line-height: 1.35; }
 .panel { border: 1px solid var(--line); background: var(--surface); }
 .controls { position: sticky; top: 12px; padding: 11px; background: var(--rail); }
 .controls h2, .workspace-title { font-size: 1.05rem; }
-.segments { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 10px 0 12px; }
 button { min-width: 0; border: 1px solid #99a9b2; border-radius: 2px; padding: 5px 7px; color: var(--ink); background: #f2f4f5; }
 button:hover:not(:disabled) { background: #e1e9ed; }
 button:disabled { border-color: #b0bcc3; background: #e7edef; }
-.segments button { padding-inline: 3px; white-space: nowrap; }
-.segments button[aria-pressed="true"] { border-color: #8099ab; background: #dbe9f3; font-weight: 650; }
-.fields { display: grid; gap: 4px; }
+.fields { display: grid; gap: 4px; margin-top: 10px; }
 .fields label, .layout-top label { font-weight: 600; font-size: .92rem; }
-.fields :is(input, select), .layout-top select { width: 100%; min-width: 0; padding: 5px 6px; border: 1px solid #99a9b2; border-radius: 2px; color: var(--ink); background: #fff; }
-.fields :is(input, select):disabled { background: #e7edef; }
-.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.field-grid label { display: grid; gap: 3px; min-width: 0; }
+.fields select, .layout-top select { width: 100%; min-width: 0; padding: 5px 6px; border: 1px solid #99a9b2; border-radius: 2px; color: var(--ink); background: #fff; }
+.fields select:disabled { background: #e7edef; }
 .field-note { overflow-wrap: anywhere; }
 .primary, .live-controls button { width: 100%; margin-top: 9px; }
 .input-status { color: var(--muted); font-size: .92rem; overflow-wrap: anywhere; }
@@ -71,7 +66,6 @@ button:disabled { border-color: #b0bcc3; background: #e7edef; }
 .section-label { font-size: .92rem; font-weight: 650; margin-bottom: 3px; }
 .download { flex: none; white-space: nowrap; }
 .placeholder { min-height: 150px; padding: 12px; display: grid; place-items: center; text-align: center; color: var(--muted); }
-.analysis-reason { margin: 7px 11px; color: var(--muted); overflow-wrap: anywhere; }
 .metrics, .native-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 9px 11px; border: 1px solid var(--hairline); }
 .metric, .native-stats > div { min-width: 0; padding: 6px 8px; }
 .metric + .metric, .native-stats > div + div { border-left: 1px solid var(--hairline); }

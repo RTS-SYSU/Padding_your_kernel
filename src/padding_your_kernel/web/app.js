@@ -5,7 +5,7 @@ const number = new Intl.NumberFormat("zh-CN");
 const timingNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const ratioNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 const state = {
-  mode: "preset", presets: new Map(), pending: false, result: null, resultPreset: null, dirty: false,
+  presets: new Map(), pending: false, result: null, resultPreset: null, dirty: false,
   liveAvailable: null, liveReason: "", liveError: "", liveStarting: false, job: null,
 };
 const liveStorageKey = "padding-your-kernel-live-id";
@@ -20,17 +20,6 @@ const statuses = {
   keep_baseline: "保留原布局",
   unsupported: "超出模型适用范围",
 };
-const unsupportedReasons = new Map([
-  ["Logical width must be a multiple of 2048 FP32 elements for the row-stride term to cancel at both levels.",
-    "逻辑行宽须为 2048 个 FP32 元素的倍数。"],
-  ["The custom rule requires at least 32 rows so its full-warp certificate applies.",
-    "相邻列模型须至少有 32 行。"],
-  ["The stated base alignment must guarantee a 32-byte aligned row start.",
-    "基址须保证行首按 32 B 对齐。"],
-  ["The reserved competing lines occupy every L1 way in the worst case.",
-    "保留缓存线已占满理想 L1 的四路。"],
-]);
-
 function element(tag, value, className) {
   const node = document.createElement(tag);
   if (value != null) node.textContent = String(value);
@@ -113,7 +102,7 @@ function speedup(value) {
 }
 
 function measurementContext() {
-  return state.mode === "preset" && state.result && !state.dirty && !state.pending ? state.resultPreset : null;
+  return state.result && !state.dirty && !state.pending ? state.resultPreset : null;
 }
 
 function validMeasurement(row) {
@@ -177,12 +166,9 @@ function showLiveTiming(row, meta, provenance, message = "", error = false) {
 
 function showLive() {
   const button = byId("run-live");
-  const custom = state.mode !== "preset";
   const job = state.job;
   const running = state.liveStarting || job?.status === "running";
-  const selectedPreset = custom ? null : state.presets.get(byId("preset").value);
-  byId("live-controls").hidden = custom && !running;
-  button.hidden = custom;
+  const selectedPreset = state.presets.get(byId("preset").value);
   button.disabled = running || state.pending || !state.liveAvailable || !selectedPreset;
   byId("live-progress").hidden = !running;
   const selected = job && state.presets.get(job.preset)?.operator;
@@ -301,16 +287,8 @@ async function startLive() {
 }
 
 function updateControls() {
-  const custom = state.mode === "adjacent-columns";
-  byId("preset-fields").hidden = custom;
-  byId("custom-fields").hidden = !custom;
-  byId("preset-mode").setAttribute("aria-pressed", String(!custom));
-  byId("custom-mode").setAttribute("aria-pressed", String(custom));
-  byId("preset").disabled = custom || state.pending || !state.presets.size;
-  for (const control of byId("custom-fields").querySelectorAll("input, select")) {
-    control.disabled = !custom || state.pending;
-  }
-  byId("analyze").disabled = state.pending || (!custom && !state.presets.size);
+  byId("preset").disabled = state.pending || !state.presets.size;
+  byId("analyze").disabled = state.pending || !state.presets.size;
   byId("download").disabled = !state.result || state.pending || state.dirty;
   byId("analysis").setAttribute("aria-busy", String(state.pending));
   showLive();
@@ -377,20 +355,17 @@ function showResult(result, preset) {
     throw new Error("分析结果缺少必要字段");
   }
   state.result = result;
-  state.resultPreset = preset?.name || null;
+  state.resultPreset = preset.name;
   state.dirty = false;
   byId("result-empty").hidden = true;
   byId("result-body").hidden = false;
-  setText("operator", preset ? result.operator : "自定义相邻列");
+  setText("operator", result.operator);
   const first = result.layouts[0];
   const shape = first && positiveInteger(first.rows) && positiveInteger(first.logical_width) ?
     `${fmt(first.rows)} × ${fmt(first.logical_width)}` : "";
-  setText("result-meta", preset ? presetMeta(preset) || shape : ["相邻列模型", shape].filter(Boolean).join(" · "));
+  setText("result-meta", presetMeta(preset) || shape);
   setText("padding-value", result.p == null ? "—" : `p = ${fmt(result.p)}`);
   setText("result-status", statuses[result.status]);
-  const unsupported = result.status === "unsupported";
-  byId("analysis-reason").hidden = !unsupported;
-  setText("analysis-reason", unsupported ? unsupportedReasons.get(result.reason) ?? result.reason ?? "" : "");
   setText("bytes-value", byteLabel(result.extra_bytes));
   setText("bytes-note", result.layouts.length ? `${fmt(result.layouts.length)} 个操作数合计` : "");
   byId("operand").replaceChildren(...result.layouts.map((layout, index) => {
@@ -404,29 +379,17 @@ function showResult(result, preset) {
 
 async function analyze() {
   if (state.pending) return;
-  const isPreset = state.mode === "preset";
   const preset = state.presets.get(byId("preset").value);
-  if (isPreset && !preset) return;
-  if (!isPreset && !byId("analysis-form").reportValidity()) return;
-  const input = isPreset ? { mode: "preset", preset: preset.name } : {
-    mode: "adjacent-columns",
-    width: byId("width").valueAsNumber,
-    rows: byId("rows").valueAsNumber,
-    reserved_lines: byId("reserved").valueAsNumber,
-    base_alignment_bytes: Number(byId("alignment").value),
-  };
-  if (!isPreset && ![input.width, input.rows, input.reserved_lines].every(Number.isSafeInteger)) {
-    setStatus("请输入浏览器可精确表示的整数。", true);
-    return;
-  }
+  if (!preset) return;
   state.pending = true;
   setStatus("正在推导布局…");
   updateControls();
   try {
     const result = await jsonRequest("/api/analyze", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "preset", preset: preset.name }),
     });
-    showResult(result, isPreset ? preset : null);
+    showResult(result, preset);
     setStatus("分析完成。");
   } catch (error) {
     state.dirty = Boolean(state.result);
@@ -466,31 +429,22 @@ async function loadPresets() {
     if (defaultPreset) byId("preset").value = defaultPreset.name;
     setText("preset-meta", presetMeta(state.presets.get(byId("preset").value)));
     updateControls();
-    if (!state.result && state.mode === "preset") await analyze();
+    if (!state.result) await analyze();
   } catch (error) {
     byId("retry-presets").hidden = false;
     setStatus(`无法加载预设。${error.message || ""}`, true);
     if (!state.result) {
       setText("operator", "等待输入");
-      setText("result-empty", "重新加载算子预设，或使用相邻列分析。");
+      setText("result-empty", "请重新加载算子预设。");
     }
     updateControls();
   }
 }
 
-function changeMode(mode) {
-  if (state.mode === mode || state.pending) return;
-  state.mode = mode;
-  inputChanged();
-}
-
-byId("preset-mode").addEventListener("click", () => changeMode("preset"));
-byId("custom-mode").addEventListener("click", () => changeMode("adjacent-columns"));
 byId("preset").addEventListener("change", () => {
   setText("preset-meta", presetMeta(state.presets.get(byId("preset").value)));
   inputChanged();
 });
-byId("custom-fields").addEventListener("input", inputChanged);
 byId("analysis-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void analyze();

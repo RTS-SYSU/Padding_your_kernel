@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .live import BusyError, LiveJobs
-from .model import analyze_adjacent_columns
 from .presets import analyze_preset, list_presets
 
 
@@ -33,20 +32,9 @@ class RequestError(ValueError):
 def analyze_request(body):
     if not isinstance(body, dict):
         raise ValueError("分析参数必须是 JSON 对象。")
-    if body.get("mode") == "preset":
-        if set(body) != {"mode", "preset"} or not isinstance(body["preset"], str):
-            raise ValueError("请选择一个算子预设。")
-        return analyze_preset(body["preset"]).to_dict()
-    if body.get("mode") == "adjacent-columns":
-        mandatory = {"mode", "width", "rows"}
-        optional = {"reserved_lines", "base_alignment_bytes"}
-        if not mandatory <= body.keys() <= mandatory | optional:
-            raise ValueError("请输入逻辑行宽、行数和有效的可选参数。")
-        fields = {key: value for key, value in body.items() if key != "mode"}
-        if any(type(value) is not int for value in fields.values()):
-            raise ValueError("分析参数必须是整数。")
-        return analyze_adjacent_columns(**fields).to_dict()
-    raise ValueError("请选择预设或自定义相邻列复用。")
+    if set(body) != {"mode", "preset"} or body["mode"] != "preset" or not isinstance(body["preset"], str):
+        raise ValueError("请选择一个算子预设。")
+    return analyze_preset(body["preset"]).to_dict()
 
 
 class Handler(BaseHTTPRequestHandler):

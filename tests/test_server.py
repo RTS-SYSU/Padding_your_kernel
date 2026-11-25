@@ -70,20 +70,22 @@ class WebTests(unittest.TestCase):
                 self.assertTrue(content_type.startswith(expected))
                 self.assertTrue(payload)
 
-    def test_presets_and_independent_analysis(self):
+    def test_presets_and_their_analysis(self):
         status, _, payload = self.request("GET", "/api/presets")
         self.assertEqual(status, 200)
         self.assertEqual(len(json.loads(payload)["presets"]), 18)
         status, result = self.report({"mode": "preset", "preset": "syrk"})
         self.assertEqual((status, result["status"], result["p"]), (200, "recommend_padding", 8))
-        status, result = self.report({"mode": "adjacent-columns", "width": 2048, "rows": 512})
-        self.assertEqual((status, result["p"]), (200, 16))
+        for name in ("atax", "bicg", "mvt", "mvt-4096"):
+            with self.subTest(preset=name):
+                status, result = self.report({"mode": "preset", "preset": name})
+                self.assertEqual((status, result["p"]), (200, 16))
 
     def test_type_and_shape_validation(self):
         for body in ([], {"mode": "bad"}, {"mode": "preset", "preset": "unknown"},
-                     {"mode": "adjacent-columns", "width": True, "rows": 512},
-                     {"mode": "adjacent-columns", "width": 2048, "rows": 2**31},
-                     {"mode": "adjacent-columns", "width": 2048, "rows": 512, "other": 2}):
+                     {"mode": "preset", "preset": False}, {"mode": "preset"},
+                     {"mode": "preset", "preset": "syrk", "width": 256},
+                     {"mode": "adjacent-columns", "width": 2048, "rows": 512}):
             with self.subTest(body=body):
                 status, result = self.report(body)
                 self.assertEqual(status, 400)
@@ -94,7 +96,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status, 200)
         for identifier in (b"result-body", b"run-live", b"live-result"):
             self.assertIn(b'id="' + identifier + b'"', page)
-        for identifier in (b"native-measurements", b"measurement-summary", b"evidence"):
+        for identifier in (b"custom-mode", b"custom-fields", b"native-measurements", b"measurement-summary", b"evidence"):
             self.assertNotIn(b'id="' + identifier + b'"', page)
         self.assertEqual(self.request("GET", "/api/measurements")[0], 404)
 

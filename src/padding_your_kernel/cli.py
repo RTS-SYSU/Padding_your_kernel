@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 
 from . import __version__
-from .model import analyze_adjacent_columns
 from .presets import analyze_preset, list_presets
 from .server import serve
 
@@ -22,11 +21,6 @@ def main(argv=None):
     commands.add_parser("presets", help="Print the available research configurations as JSON")
     preset = commands.add_parser("preset", help="Analyze a fixed benchmark configuration")
     preset.add_argument("name", choices=[item.name for item in list_presets()])
-    custom = commands.add_parser("adjacent-columns", help="Analyze a declared regular FP32 access pattern")
-    custom.add_argument("--width", type=int, required=True, help="Logical row width in float elements")
-    custom.add_argument("--rows", type=int, required=True, help="Logical number of rows")
-    custom.add_argument("--reserved-lines", type=int, default=1, help="Maximum other distinct same-set lines (0–3)")
-    custom.add_argument("--base-alignment-bytes", type=int, default=128)
     args = parser.parse_args(argv)
     if args.command == "serve":
         if not 0 <= args.port <= 65535:
@@ -39,12 +33,8 @@ def main(argv=None):
     try:
         if args.command == "presets":
             body = {"presets": [item.to_dict() for item in list_presets()]}
-        elif args.command == "preset":
-            body = analyze_preset(args.name).to_dict()
         else:
-            body = analyze_adjacent_columns(args.width, args.rows,
-                                            reserved_lines=args.reserved_lines,
-                                            base_alignment_bytes=args.base_alignment_bytes).to_dict()
+            body = analyze_preset(args.name).to_dict()
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(body, ensure_ascii=True, indent=2))
