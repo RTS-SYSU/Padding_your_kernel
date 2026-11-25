@@ -2,7 +2,19 @@
 
 const byId = (id) => document.getElementById(id);
 const number = new Intl.NumberFormat("zh-CN");
-const state = { mode: "preset", presets: new Map(), pending: false, result: null, dirty: false };
+const timingNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const ratioNumber = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+const state = {
+  mode: "preset", presets: new Map(), pending: false, result: null, resultPreset: null, dirty: false,
+  archive: null, archiveError: "", liveAvailable: null, liveReason: "", liveError: "", liveStarting: false, job: null,
+};
+const liveStorageKey = "padding-your-kernel-live-id";
+let liveTimer;
+const measurementStatuses = {
+  accepted: ["通过重复加速验收", "accepted"],
+  not_accepted: ["未复现一致加速", "not-accepted"],
+  baseline_only: ["仅基线", ""],
+};
 const statuses = {
   recommend_padding: "采用行尾补量",
   keep_baseline: "保留原布局",
@@ -99,9 +111,306 @@ async function jsonRequest(path, options) {
   }
   if (!response.ok) {
     const message = payload?.error ?? payload?.message ?? payload?.detail;
-    throw new Error(typeof message === "string" ? message : `请求失败（HTTP ${response.status}）`);
+    const error = new Error(typeof message === "string" ? message : `请求失败（HTTP ${response.status}）`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
+}
+
+function renderError(id, message, error = false) {
+  setText(id, message);
+  byId(id).classList.toggle("is-error", error);
+}
+
+function preparationLabel(preparation) {
+  if (preparation === "primed") return "预热";
+  if (preparation === "eviction_sweep") return "缓存清扫后";
+  return preparation || "";
+}
+
+function timing(value, unit = false) {
+  return Number.isFinite(value) ? `${timingNumber.format(value)}${unit ? " µs" : ""}` : "—";
+}
+
+function speedup(value) {
+  return Number.isFinite(value) ? `${ratioNumber.format(value)}×` : "—";
+}
+
+function measurementContext() {
+  return state.mode === "preset" && state.result && !state.dirty && !state.pending ? state.resultPreset : null;
+}
+
+function validMeasurement(row) {
+  return typeof row?.preset === "string" && typeof row.operator === "string" &&
+    Number.isSafeInteger(row.p) && row.p >= 0 && Object.hasOwn(measurementStatuses, row.status) &&
+    Number.isFinite(row.baseline_us);
+}
+
+function matchMeasurement(row, preset) {
+  if (!validMeasurement(row) || row.preset !== preset || !state.result) return false;
+  return row.p === state.result.p || (row.p === 0 && row.status === "baseline_only" &&
+    state.result.status === "unsupported" && state.result.p == null);
+}
+
+function metadataLabel(meta) {
+  return [meta.device, preparationLabel(meta.preparation), positiveInteger(meta.processes) ?
+    `${fmt(meta.processes)} 个独立进程` : null].filter(Boolean).join(" · ");
+}
+
+function trialDescription(meta) {
+  return positiveInteger(meta.rounds) && positiveInteger(meta.samples_per_round) ?
+    `每个进程 ${fmt(meta.rounds)} 轮，每轮每种布局 ${fmt(meta.samples_per_round)} 个样本。` : "";
+}
+
+function showTiming(prefix, row, meta, provenance, message = "", error = false) {
+  const hasRow = Boolean(row);
+  byId(`${prefix}-data`).hidden = !hasRow;
+  byId(`${prefix}-verdict`).hidden = !hasRow;
+  setText(`${prefix}-device`, metadataLabel(meta));
+  renderError(`${prefix}-message`, message, error);
+  if (!hasRow) return;
+
+  const verdict = measurementStatuses[row.status];
+  const verdictNode = byId(`${prefix}-verdict`);
+  verdictNode.className = `verdict ${verdict?.[1] || ""}`;
+  verdictNode.textContent = verdict?.[0] || "已完成";
+  const stats = [["基线 p=0", timing(row.baseline_us, true)]];
+  const processes = meta.processes || row.process_speedups?.length;
+  if (row.p > 0) {
+    stats.push([`补后 p=${fmt(row.p)}`, timing(row.padded_us, true)], ["配对加速比", speedup(row.speedup)]);
+    if (positiveInteger(processes) && Number.isInteger(row.faster_processes)) {
+      verdictNode.textContent += ` · ${row.faster_processes}/${processes}`;
+    }
+  }
+  byId(`${prefix}-stats`).replaceChildren(...stats.map(([label, value]) => {
+    const cell = element("div");
+    cell.append(element("dt", label), element("dd", value));
+    return cell;
+  }));
+  const ratios = Array.isArray(row.process_speedups) ? row.process_speedups : [];
+  byId(`${prefix}-processes`).hidden = !ratios.length;
+  byId(`${prefix}-ratios`).replaceChildren(...ratios.map((value, index) =>
+    element("li", `进程 ${index + 1} · ${speedup(value)}`)));
+  const launchText = positiveInteger(row.launches) ? `计时覆盖 ${fmt(row.launches)} 次内核启动。` : "";
+  const checks = row.correctness_checks ?? (prefix === "live-result" ? meta.correctness_checks : null);
+  const correctnessText = positiveInteger(checks) ? `${fmt(checks)} 项输出检查全部通过。` : "";
+  const comparison = row.p === 0 ? "此配置仅计时基线。" : "配对加速比取各进程成对统计量的中位数。";
+  setText(`${prefix}-method`, [provenance, launchText, trialDescription(meta), correctnessText, comparison]
+    .filter(Boolean).join(" "));
+}
+
+function showArchiveCard() {
+  const preset = measurementContext();
+  byId("native-measurements").hidden = !preset;
+  if (!preset) return;
+  if (state.archiveError) {
+    showTiming("native", null, {}, "", "无法加载归档计时。可在全部实测区域重试。", true);
+    return;
+  }
+  if (!state.archive) {
+    showTiming("native", null, {}, "", "正在加载归档计时…");
+    return;
+  }
+  const row = state.archive.measurements.find((item) => item.preset === preset);
+  const match = matchMeasurement(row, preset);
+  showTiming("native", match ? row : null, state.archive,
+    "归档快照与此预设的源码和输入尺寸对应。",
+    match ? "" : row ? "归档布局与当前推导不同，参见全部实测。" : "此预设没有归档计时。");
+}
+
+function archiveRow(row, meta) {
+  const tr = element("tr");
+  const main = element("th");
+  main.scope = "row";
+  const preset = state.presets.get(row.preset);
+  if (preset) {
+    const button = element("button", row.operator, "summary-preset");
+    button.type = "button";
+    button.setAttribute("aria-label", `查看 ${row.operator} ${preset.size || ""} 的分析`);
+    button.addEventListener("click", async () => {
+      if (state.pending) return;
+      state.mode = "preset";
+      byId("preset").value = preset.name;
+      setText("preset-meta", presetMeta(preset));
+      inputChanged();
+      await analyze();
+      if (measurementContext() === preset.name) byId("native-measurements").scrollIntoView({ block: "start" });
+    });
+    main.append(button);
+  } else {
+    main.append(element("span", row.operator));
+  }
+  main.append(element("small", preset?.size || (row.case !== "default" ? row.case : "")));
+  tr.append(main, element("td", fmt(row.p)), element("td", timing(row.baseline_us)),
+    element("td", timing(row.padded_us)), element("td", speedup(row.speedup)),
+    element("td", Number.isInteger(row.faster_processes) ? `${row.faster_processes}/${meta.processes}` : "—"));
+  const verdict = measurementStatuses[row.status];
+  const cell = element("td");
+  cell.append(element("span", verdict?.[0] || row.status, `verdict ${verdict?.[1] || ""}`));
+  tr.append(cell);
+  return tr;
+}
+
+function showArchiveSummary() {
+  const data = state.archive;
+  byId("summary-content").hidden = !data;
+  byId("retry-measurements").hidden = !state.archiveError;
+  renderError("summary-message", state.archiveError || (data ? "" : "正在加载已归档的 GPU 结果…"), Boolean(state.archiveError));
+  if (!data) return;
+  setText("summary-meta", [metadataLabel(data), data.experiment, data.date].filter(Boolean).join(" · "));
+  const counts = [["个配置", data.measurements.length], ["个通过", 0], ["个未复现一致加速", 0], ["个仅基线", 0]];
+  for (const row of data.measurements) {
+    const index = ["accepted", "not_accepted", "baseline_only"].indexOf(row.status);
+    if (index !== -1) counts[index + 1][1] += 1;
+  }
+  byId("summary-totals").replaceChildren(...counts.map(([label, count]) => {
+    const item = element("li");
+    item.append(element("strong", fmt(count)), document.createTextNode(` ${label}`));
+    return item;
+  }));
+  byId("summary-rows").replaceChildren(...data.measurements.map((row) => archiveRow(row, data)));
+  setText("summary-method", `已验证的归档快照。各行对应既定源码和输入尺寸，时间为 CUDA 事件计时。${trialDescription(data)}全部进程配对中位数均大于 1 才通过。`);
+}
+
+async function loadMeasurements() {
+  state.archiveError = "";
+  showArchiveSummary();
+  try {
+    const data = await jsonRequest("/api/measurements");
+    if (!Array.isArray(data?.measurements) || !data.measurements.length ||
+        !data.measurements.every(validMeasurement)) throw new Error("结果列表缺少必要字段。");
+    state.archive = data;
+  } catch (error) {
+    state.archiveError = `无法加载已归档的 GPU 结果。${error.message || ""}`;
+  }
+  showArchiveSummary();
+  showArchiveCard();
+}
+
+function showLive() {
+  const button = byId("run-live");
+  const custom = state.mode !== "preset";
+  const job = state.job;
+  const running = state.liveStarting || job?.status === "running";
+  const selectedPreset = custom ? null : state.presets.get(byId("preset").value);
+  byId("live-controls").hidden = custom && !running;
+  button.hidden = custom;
+  button.disabled = running || state.pending || !state.liveAvailable || !selectedPreset;
+  byId("live-progress").hidden = !running;
+  const selected = job && state.presets.get(job.preset)?.operator;
+  const jobMessage = job?.message || job?.stage || "";
+  let status = state.liveReason;
+  if (state.liveAvailable == null) status = "正在检查本机运行能力…";
+  if (state.liveStarting) status = "正在提交真机实验…";
+  else if (job) {
+    const stage = { running: "运行中", completed: "已完成", failed: "运行失败" }[job.status];
+    status = [selected || job.preset, stage, jobMessage].filter(Boolean).join(" · ");
+  }
+  renderError("live-status", [status, state.liveError].filter(Boolean).join(" "),
+    Boolean(state.liveError) || job?.status === "failed");
+
+  const matchesSelection = Boolean(selectedPreset && job && job.preset === selectedPreset.name && !state.liveStarting);
+  byId("live-result").hidden = !matchesSelection;
+  if (!matchesSelection) return;
+  if (job.status === "completed") {
+    const analyzed = measurementContext() === selectedPreset.name;
+    const match = analyzed ? matchMeasurement(job.measurement, selectedPreset.name) :
+      validMeasurement(job.measurement) && job.measurement.preset === selectedPreset.name;
+    showTiming("live-result", match ? job.measurement : null, job,
+      `${selectedPreset.operator} · ${presetMeta(selectedPreset)}。由当前真机实验采集。`,
+      match ? "" : "本次计时的预设或布局与当前分析不一致。", !match);
+  } else {
+    showTiming("live-result", null, job, "", jobMessage || (running ? "正在运行真机实验…" : "真机实验未完成。"),
+      job.status === "failed");
+  }
+}
+
+function savedLiveId(value) {
+  try {
+    if (value === null) window.sessionStorage.removeItem(liveStorageKey);
+    if (value) window.sessionStorage.setItem(liveStorageKey, value);
+    return window.sessionStorage.getItem(liveStorageKey);
+  } catch {
+    return null;
+  }
+}
+
+function followLive(job) {
+  if (!job?.id || !job.preset || !["running", "completed", "failed"].includes(job.status)) {
+    throw new Error("真机实验返回了无效状态。");
+  }
+  state.job = job;
+  state.liveError = "";
+  savedLiveId(job.id);
+  window.clearTimeout(liveTimer);
+  if (job.status === "running") liveTimer = window.setTimeout(pollLive, 1500);
+  showLive();
+}
+
+async function pollLive() {
+  const id = state.job?.id;
+  if (!id || state.job.status !== "running") return;
+  try {
+    const job = await jsonRequest(`/api/live/${encodeURIComponent(id)}`);
+    if (state.job?.id === id) followLive(job);
+  } catch (error) {
+    if (state.job?.id !== id) return;
+    if (error.status === 404 || error.status === 410) {
+      savedLiveId(null);
+      state.job = null;
+      state.liveError = "当前服务中已无该实验记录。";
+      await loadLiveCapability();
+      return;
+    }
+    state.liveError = `暂时无法更新状态。${error.message || ""}`;
+    showLive();
+    liveTimer = window.setTimeout(pollLive, 3500);
+  }
+}
+
+async function loadLiveCapability() {
+  try {
+    const data = await jsonRequest("/api/live");
+    state.liveAvailable = data.available === true;
+    state.liveReason = state.liveAvailable ? "" : (data.reason || "当前环境无法运行真机实验。");
+    if (data.active) followLive(data.active);
+    else if (!state.job) {
+      const id = savedLiveId();
+      if (id) {
+        try {
+          followLive(await jsonRequest(`/api/live/${encodeURIComponent(id)}`));
+        } catch (error) {
+          if (error.status === 404 || error.status === 410) savedLiveId(null);
+        }
+      }
+    }
+  } catch (error) {
+    state.liveAvailable = false;
+    state.liveReason = `无法检查本机运行能力。${error.message || ""}`;
+  }
+  showLive();
+}
+
+async function startLive() {
+  const preset = byId("preset").value;
+  if (byId("run-live").disabled || !state.presets.has(preset)) return;
+  state.liveStarting = true;
+  state.liveError = "";
+  showLive();
+  if (measurementContext() !== preset) void analyze();
+  try {
+    const job = await jsonRequest("/api/live", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset }),
+    });
+    followLive(job);
+  } catch (error) {
+    state.liveError = `无法启动真机实验。${error.message || ""}`;
+    await loadLiveCapability();
+  } finally {
+    state.liveStarting = false;
+    showLive();
+  }
 }
 
 function updateControls() {
@@ -117,6 +426,8 @@ function updateControls() {
   byId("analyze").disabled = state.pending || (!custom && !state.presets.size);
   byId("download").disabled = !state.result || state.pending || state.dirty;
   byId("analysis").setAttribute("aria-busy", String(state.pending));
+  showArchiveCard();
+  showLive();
 }
 
 function inputChanged() {
@@ -207,6 +518,7 @@ function showResult(result, preset) {
     throw new Error("分析结果缺少必要字段");
   }
   state.result = result;
+  state.resultPreset = preset?.name || null;
   state.dirty = false;
   byId("result-empty").hidden = true;
   byId("result-body").hidden = false;
@@ -292,6 +604,7 @@ async function loadPresets() {
       /^syrk$/i.test(preset.operator) || /^syrk(?:$|[/:.-])/i.test(preset.name));
     if (defaultPreset) byId("preset").value = defaultPreset.name;
     setText("preset-meta", presetMeta(state.presets.get(byId("preset").value)));
+    showArchiveSummary();
     updateControls();
     if (!state.result && state.mode === "preset") await analyze();
   } catch (error) {
@@ -324,6 +637,8 @@ byId("analysis-form").addEventListener("submit", (event) => {
 });
 byId("operand").addEventListener("change", showLayout);
 byId("retry-presets").addEventListener("click", loadPresets);
+byId("retry-measurements").addEventListener("click", loadMeasurements);
+byId("run-live").addEventListener("click", startLive);
 byId("download").addEventListener("click", () => {
   if (!state.result || state.dirty || state.pending) return;
   const file = new Blob([JSON.stringify(state.result, null, 2) + "\n"], { type: "application/json" });
@@ -340,3 +655,5 @@ byId("download").addEventListener("click", () => {
 
 updateControls();
 void loadPresets();
+void loadMeasurements();
+void loadLiveCapability();

@@ -12,18 +12,17 @@
   <a class="skip-link" href="#analysis">跳到分析结果</a>
   <header class="topbar">
     <div class="wrap top-inner">
-      <a class="brand" href="/" aria-label="Padding Your Kernel 工作台"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>Padding Your Kernel</a>
-      <a class="repo-link" href="https://github.com/RTS-SYSU/Padding_your_kernel" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <h1 class="app-title"><a class="brand" href="/">Padding Your Kernel</a></h1>
+      <nav class="top-links" aria-label="工作台链接">
+        <a class="measurement-link" href="#measurement-summary">GPU 实测</a>
+        <a class="repo-link" href="https://github.com/RTS-SYSU/Padding_your_kernel" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
     </div>
   </header>
   <main class="wrap">
-    <div class="page-heading">
-      <h1>GPU 补量工作台</h1>
-      <p>根据算子访问和缓存模型推导单个行尾补量。</p>
-    </div>
     <div class="workspace">
       <aside class="panel controls" aria-labelledby="inputs-title">
-        <h2 id="inputs-title">分析输入</h2>
+        <h2 id="inputs-title">操作</h2>
         <div class="segments" role="group" aria-label="分析模式">
           <button id="preset-mode" type="button" aria-pressed="true" aria-controls="preset-fields">算子预设</button>
           <button id="custom-mode" type="button" aria-pressed="false" aria-controls="custom-fields">相邻列</button>
@@ -44,22 +43,28 @@
             <label for="alignment">基址对齐</label>
             <select id="alignment"><option value="4">4 B</option><option value="8">8 B</option><option value="16">16 B</option><option value="32">32 B</option><option value="64">64 B</option><option value="128" selected>128 B</option><option value="256">256 B</option></select>
           </div>
-          <button id="analyze" type="submit" class="primary" disabled>分析布局 <span aria-hidden="true">→</span></button>
+          <button id="analyze" type="submit" class="primary" disabled>分析布局</button>
         </form>
         <p id="input-status" class="input-status" role="status" aria-live="polite"></p>
         <button id="retry-presets" type="button" class="secondary" hidden>重新加载预设</button>
+        <div id="live-controls" class="live-controls">
+          <button id="run-live" type="button" class="secondary" disabled>运行真机实验</button>
+          <progress id="live-progress" aria-label="真机实验进行中" hidden></progress>
+          <p id="live-status" class="input-status" role="status" aria-live="polite">正在检查本机运行能力…</p>
+        </div>
       </aside>
 
       <div id="analysis" class="analysis" tabindex="-1" aria-label="分析结果" aria-busy="true">
+        <h2 class="workspace-title">可视化与结果</h2>
         <section class="panel">
           <div class="panel-head result-head">
             <div><p class="section-label">当前分析</p><h2 id="operator">正在加载</h2><p id="result-meta" class="quiet"></p></div>
-            <button id="download" type="button" class="secondary download" disabled><span aria-hidden="true">↓</span> 下载 JSON</button>
+            <button id="download" type="button" class="secondary download" disabled>下载 JSON</button>
           </div>
           <div id="result-empty" class="placeholder" role="status">正在加载算子预设…</div>
           <div id="result-body" hidden>
             <div class="metrics">
-              <div class="metric featured"><span>每行建议补量</span><strong id="padding-value">—</strong><small id="result-status"></small></div>
+              <div class="metric"><span>每行建议补量</span><strong id="padding-value">—</strong><small id="result-status"></small></div>
               <div class="metric"><span>逻辑行宽 → 物理行距</span><strong id="pitch-value">—</strong><small id="pitch-note"></small></div>
               <div class="metric"><span>额外分配</span><strong id="bytes-value">—</strong><small id="bytes-note"></small></div>
             </div>
@@ -69,6 +74,37 @@
               <div class="legend"><span><i class="data-key"></i>逻辑元素</span><span id="pad-legend"><i class="pad-key"></i>行尾补量</span><span id="diagram-note" class="quiet"></span></div>
             </div>
           </div>
+        </section>
+
+        <section id="live-result" class="panel measurements" aria-labelledby="live-result-title" hidden>
+          <div class="panel-head measurement-head">
+            <div><h2 id="live-result-title">本次真机实验</h2><p class="quiet" id="live-result-device"></p></div>
+            <span id="live-result-verdict" class="verdict" hidden></span>
+          </div>
+          <p id="live-result-message" class="measurement-message" role="status"></p>
+          <div id="live-result-data" hidden>
+            <dl id="live-result-stats" class="native-stats"></dl>
+            <div id="live-result-processes" class="native-processes" hidden>
+              <h3>各进程配对加速比</h3><ol id="live-result-ratios"></ol>
+            </div>
+            <p id="live-result-method" class="measurement-method"></p>
+          </div>
+        </section>
+
+        <section id="native-measurements" class="panel measurements" aria-labelledby="native-title" hidden>
+          <div class="panel-head measurement-head">
+            <div><h2 id="native-title">历史真机实验</h2><p class="quiet" id="native-device"></p></div>
+            <span id="native-verdict" class="verdict" hidden></span>
+          </div>
+          <p id="native-message" class="measurement-message" role="status"></p>
+          <div id="native-data" hidden>
+            <dl id="native-stats" class="native-stats"></dl>
+            <div id="native-processes" class="native-processes" hidden>
+              <h3>各进程配对加速比</h3><ol id="native-ratios"></ol>
+            </div>
+            <p id="native-method" class="measurement-method"></p>
+          </div>
+          <div class="measurement-actions"><a href="#measurement-summary">查看全部 GPU 实测</a></div>
         </section>
 
         <section id="evidence" class="panel evidence" aria-labelledby="evidence-title" hidden>
@@ -91,6 +127,24 @@
         </section>
       </div>
     </div>
+    <section id="measurement-summary" class="panel measurement-summary" aria-labelledby="summary-title">
+      <div class="panel-head measurement-head">
+        <div><h2 id="summary-title">RTX 4060 Ti 全部实测</h2><p id="summary-meta" class="quiet"></p></div>
+        <button id="retry-measurements" type="button" class="secondary" hidden>重新加载结果</button>
+      </div>
+      <p id="summary-message" class="measurement-message" role="status">正在加载已归档的 GPU 结果…</p>
+      <div id="summary-content" class="summary-content" hidden>
+        <ul id="summary-totals" class="summary-totals" aria-label="验收统计"></ul>
+        <div class="table-scroll" role="region" aria-label="GPU 实测配置表" tabindex="0">
+          <table class="summary-table">
+            <caption class="sr-only">按预设配置比较两种布局的 CUDA 事件时间</caption>
+            <thead><tr><th scope="col">算子与尺寸</th><th scope="col">推导补量</th><th scope="col">基线 (µs)</th><th scope="col">补后 (µs)</th><th scope="col">配对加速比</th><th scope="col">更快进程</th><th scope="col">结果</th></tr></thead>
+            <tbody id="summary-rows"></tbody>
+          </table>
+        </div>
+        <p id="summary-method" class="measurement-method"></p>
+      </div>
+    </section>
   </main>
 </body>
 </html>
